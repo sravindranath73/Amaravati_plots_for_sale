@@ -768,6 +768,10 @@ header h1 small{font-weight:400;color:#aab2c5;margin-left:6px;font-size:13px}
     <label class="pf">≤ <input type="number" id="pmax" value="60000" step="1000" min="0" inputmode="numeric"></label>
     <label class="pf ck" title="Plots with no price in the spreadsheet"><input type="checkbox" id="punp" checked> unpriced</label>
   </div>
+  <div class="group" id="size"><span class="lbl">Size sq yd</span>
+    <label class="pf">≥ <input type="number" id="smin" value="30" step="10" min="0" inputmode="numeric"></label>
+    <label class="pf">≤ <input type="number" id="smax" value="2000" step="10" min="0" inputmode="numeric"></label>
+  </div>
   <div class="spacer"></div>
   <button class="pill" id="listbtn" title="Show the plots currently on the map as a table">List</button>
   <button class="pill" id="fit">Show all plots</button>
@@ -777,7 +781,7 @@ header h1 small{font-weight:400;color:#aab2c5;margin-left:6px;font-size:13px}
 <section id="list" role="dialog" aria-label="Plots on the map">
   <div class="lh"><b>Plots on the map</b><span id="lcount"></span><button id="lclose" aria-label="Close">×</button></div>
   <div class="lscroll"><table id="ltable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
-  <div class="lnote">Shows exactly the plots visible with the current Agent / Type / Price filters. Click a column heading to sort; click a row to go to that plot.</div>
+  <div class="lnote">Shows exactly the plots visible with the current Agent / Type / Price / Size filters. Click a column heading to sort; click a row to go to that plot.</div>
 </section>
 <aside id="drawer"><div class="dh"><b>Plots not yet on the map</b><button id="dclose" aria-label="Close">×</button></div><div class="db" id="dbody"></div></aside>
 </div>
@@ -794,7 +798,7 @@ const MAP_W=31473, MAP_H=24108, Z=7;
 
 const AGENTS=window.__AGENTS.filter(a=>a.key!=='Unassigned'||PLOTS.some(p=>p.agent===a.key));
 const TYPES=['Residential','Commercial'];
-const state={agents:new Set(AGENTS.map(a=>a.key)),types:new Set(TYPES),pmin:20000,pmax:60000,unpriced:true};
+const state={agents:new Set(AGENTS.map(a=>a.key)),types:new Set(TYPES),pmin:20000,pmax:60000,unpriced:true,smin:30,smax:2000};
 
 function shapeSVG(shape,color,size){
   const s=size, st='stroke="#fff" stroke-width="2" stroke-linejoin="round"';
@@ -818,6 +822,15 @@ new Tiles({tileSize:256,maxNativeZoom:Z,minNativeZoom:0,bounds,noWrap:true,keepB
 
 // --- markers ---
 const fmt=n=>n==null||n===''?null:Number(n).toLocaleString('en-IN');
+// Same formulas as the Excel sheet (Summary tab rates), in lakhs:
+//   Registration = area x registration price;  Cash = area x (price - registration price)
+//   Total = area x price + Registration x comissions% + area x price x agent comission% + fixed costs
+const RATES=Object.assign({reg_rate:5750,reg_pct:8,comm_pct:1,fixed:4000},window.__RATES||{});
+function costs(p){const a=Number(p.area)>0?Number(p.area):null, pr=Number(p.price)>0?Number(p.price):null;
+  const reg=a!=null?a*RATES.reg_rate/1e5:null, val=a!=null&&pr!=null?a*pr/1e5:null;
+  return {c_reg:reg, c_cash:val!=null?a*(pr-RATES.reg_rate)/1e5:null,
+          c_total:val!=null?val+reg*RATES.reg_pct/100+val*RATES.comm_pct/100+RATES.fixed/1e5:null};}
+PLOTS.forEach(p=>Object.assign(p,costs(p)));
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const layers=[];
 PLOTS.filter(p=>p.x!=null).forEach(p=>{
@@ -826,7 +839,7 @@ PLOTS.filter(p=>p.x!=null).forEach(p=>{
   const m=L.marker([p.y,p.x],{icon,title:p.uid,riseOnHover:true});
   const outline=L.rectangle([[p.y-p.h/2,p.x-p.w/2],[p.y+p.h/2,p.x+p.w/2]],{color:a.color,weight:2,fill:false,interactive:false});
   const price=Number(p.price)>0?`₹${fmt(p.price)} / sq yd`:'Not quoted';
-  const total=Number(p.price)>0&&Number(p.area)>0?`₹${(p.area*p.price/1e5).toLocaleString('en-IN',{maximumFractionDigits:2})} lakh`:'—';
+  const total=p.c_total!=null?`₹${p.c_total.toLocaleString('en-IN',{maximumFractionDigits:2})} lakh`:'—';
   m.bindPopup(`<div class="pop-h">${shapeSVG(a.shape,a.color,18)}<span class="code">${esc(p.uid)}</span>
      <span class="tag">${esc(p.type||'Type unknown')}<br>${esc(p.agent)}</span></div>
    <dl class="pop-b"><dt>Owner</dt><dd>${esc(p.owner)||'—'}</dd>
@@ -845,6 +858,8 @@ const priceOf=p=>Number(p.price)>0?Number(p.price):null;
 function visible(p){
   if(!state.agents.has(p.agent)) return false;
   if(TYPES.includes(p.type)&&!state.types.has(p.type)) return false;     // blank type is not filtered by type
+  const ar=Number(p.area)>0?Number(p.area):null;                         // plots without an area are not size-filtered
+  if(ar!=null&&((state.smin!=null&&ar<state.smin)||(state.smax!=null&&ar>state.smax))) return false;
   const pr=priceOf(p), lo=state.pmin, hi=state.pmax;
   if(pr==null) return state.unpriced;
   return (lo==null||pr>=lo)&&(hi==null||pr<=hi);
@@ -855,7 +870,11 @@ function apply(){
     if(v){m.addTo(map);outline.addTo(map);n++;}else{map.removeLayer(m);map.removeLayer(outline);}});
   document.getElementById('empty').style.display=n?'none':'block';
   if(typeof renderList==='function') renderList();
-  document.querySelectorAll('[data-agent]').forEach(b=>b.setAttribute('aria-pressed',state.agents.has(b.dataset.agent)));
+  document.querySelectorAll('[data-agent]').forEach(b=>{const k=b.dataset.agent;b.setAttribute('aria-pressed',state.agents.has(k));
+    const all=layers.filter(l=>l.p.agent===k), shown=all.filter(l=>visible(l.p)).length;
+    b.querySelector('.n').textContent=`${shown} (${all.length})`;
+    b.title=`${shown} of ${all.length} ${k} plots shown with the current filters`;});
+  const ubx=document.getElementById('unl'); if(ubx) ubx.textContent=`${n} of ${PLOTS.length} on map`;
   document.querySelectorAll('[data-type]').forEach(b=>b.setAttribute('aria-pressed',state.types.has(b.dataset.type)));
 }
 function fit(){const pts=layers.filter(l=>visible(l.p)).map(l=>l.m.getLatLng());
@@ -865,21 +884,20 @@ function fit(){const pts=layers.filter(l=>visible(l.p)).map(l=>l.m.getLatLng());
 const ag=document.getElementById('agents');
 AGENTS.forEach(a=>{const all=PLOTS.filter(p=>p.agent===a.key),on=all.filter(p=>p.x!=null).length;
   const b=document.createElement('button');b.className='chip';b.dataset.agent=a.key;
-  b.innerHTML=`${shapeSVG(a.shape,a.color,16)}${a.key}<span class="n">${on}</span>`;
-  b.title=`${on} of ${all.length} ${a.key} plots located on the map`;
+  b.innerHTML=`${shapeSVG(a.shape,a.color,16)}${a.key}<span class="n"></span>`;
   b.onclick=()=>{state.agents.has(a.key)?state.agents.delete(a.key):state.agents.add(a.key);apply();};ag.appendChild(b);});
 const ty=document.getElementById('types');
 TYPES.forEach(t=>{const b=document.createElement('button');b.className='chip';b.dataset.type=t;b.textContent=t;
   b.onclick=()=>{state.types.has(t)?state.types.delete(t):state.types.add(t);apply();};ty.appendChild(b);});
 document.getElementById('fit').onclick=fit;
 const num=v=>{v=String(v).trim();return v===''||isNaN(+v)?null:+v;};
-['pmin','pmax'].forEach(id=>document.getElementById(id).addEventListener('input',e=>{state[id]=num(e.target.value);apply();}));
+['pmin','pmax','smin','smax'].forEach(id=>document.getElementById(id).addEventListener('input',e=>{state[id]=num(e.target.value);apply();}));
 document.getElementById('punp').onchange=e=>{state.unpriced=e.target.checked;apply();};
 
 // --- drawer: plots without a location PNG ---
 const unl=PLOTS.filter(p=>p.x==null);
-const ub=document.getElementById('unl');ub.textContent=`${PLOTS.length-unl.length} of ${PLOTS.length} on map`;
-ub.title='List plots that are not yet located on the map';
+const ub=document.getElementById('unl');
+ub.title='Plots shown with the current filters, of all plots. Click to list plots not yet located on the map';
 ub.onclick=()=>document.getElementById('drawer').classList.toggle('open');
 document.getElementById('dclose').onclick=()=>document.getElementById('drawer').classList.remove('open');
 document.getElementById('dbody').innerHTML=AGENTS.map(a=>{const rows=unl.filter(p=>p.agent===a.key);if(!rows.length)return'';
@@ -891,7 +909,8 @@ const COLS=[
   {k:'agent',t:'Agent'},
   {k:'sr',t:'SR#',xl:1,n:1},{k:'code',t:'Plot Code',xl:1},{k:'area',t:'Area',xl:1,n:1,sum:1},{k:'price',t:'Price',xl:1,n:1},
   {k:'priority',t:'Priority',xl:1,n:1},{k:'type',t:'Type',xl:1},{k:'owner',t:'Owner',xl:1},
-  {k:'total',t:'Total',n:1,d:2,sum:1},{k:'comments',t:'Comments'}];
+  {k:'c_reg',t:'Registration',n:1,d:2,sum:1},{k:'c_cash',t:'Cash',n:1,d:2,sum:1},{k:'c_total',t:'Total',n:1,d:2,sum:1},
+  {k:'comments',t:'Comments'}];
 const AORD=Object.fromEntries(AGENTS.map((a,i)=>[a.key,i]));
 let lsort=null;                                       // null = sheet order (agent, then SR#)
 const cell=(c,v)=>v==null||v===''?'':c.n?Number(v).toLocaleString('en-IN',c.d?{minimumFractionDigits:0,maximumFractionDigits:c.d}:{}):esc(v);
@@ -999,7 +1018,7 @@ async function openData(priv){
   return JSON.parse(new TextDecoder().decode(await S.decrypt({name:'AES-GCM',iv:b64d(DATA.iv)},k,b64d(DATA.ct))));
 }
 function start(payload){
-  window.__PLOTS=payload.plots; window.__AGENTS=payload.agents;
+  window.__PLOTS=payload.plots; window.__AGENTS=payload.agents; window.__RATES=payload.rates;
   $('lock').remove();
   const s=document.createElement('script'); s.textContent=$('appcode').textContent; document.body.appendChild(s);
   const b=document.createElement('button'); b.className='pill'; b.id='lockbtn'; b.textContent='Lock';
@@ -1053,6 +1072,5 @@ $('f-change').addEventListener('submit',async e=>{
 init();
 })();
 </script>
-
 </body>
 </html>
