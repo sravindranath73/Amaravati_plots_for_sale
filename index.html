@@ -806,6 +806,7 @@ function shapeSVG(shape,color,size){
     const pts=[];for(let i=0;i<10;i++){const r=i%2?s*0.21:s*0.48,a=-Math.PI/2+i*Math.PI/5;pts.push((s/2+r*Math.cos(a)).toFixed(1)+','+(s/2+r*Math.sin(a)+s*0.03).toFixed(1));}
     return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${pts.join(' ')}" fill="${color}" ${st}/></svg>`;}
   if(shape==='circle') return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${s/2}" cy="${s/2}" r="${s/2-2.5}" fill="${color}" ${st}/></svg>`;
+  if(shape==='triangle') return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${s/2},2.5 ${s-2},${s-3} 2,${s-3}" fill="${color}" ${st}/></svg>`;
   if(shape==='diamond') return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><polygon points="${s/2},2 ${s-2},${s/2} ${s/2},${s-2} 2,${s/2}" fill="${color}" ${st}/></svg>`;
   return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><rect x="3" y="3" width="${s-6}" height="${s-6}" rx="1.5" fill="${color}" ${st}/></svg>`;
 }
@@ -837,7 +838,7 @@ PLOTS.filter(p=>p.x!=null).forEach(p=>{
   const a=AGENTS.find(a=>a.key===p.agent);
   const icon=L.divIcon({className:'',html:`<div class="mk">${shapeSVG(a.shape,a.color,26)}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-12]});
   const m=L.marker([p.y,p.x],{icon,title:p.uid,riseOnHover:true});
-  const outline=L.rectangle([[p.y-p.h/2,p.x-p.w/2],[p.y+p.h/2,p.x+p.w/2]],{color:a.color,weight:2,fill:false,interactive:false});
+  const outline=L.rectangle([[p.y-p.h/2,p.x-p.w/2],[p.y+p.h/2,p.x+p.w/2]],{color:a.color,weight:2,fill:false,interactive:false,dashArray:p.approx?'5 5':null});
   const price=Number(p.price)>0?`₹${fmt(p.price)} / sq yd`:'Not quoted';
   const total=p.c_total!=null?`₹${p.c_total.toLocaleString('en-IN',{maximumFractionDigits:2})} lakh`:'—';
   m.bindPopup(`<div class="pop-h">${shapeSVG(a.shape,a.color,18)}<span class="code">${esc(p.uid)}</span>
@@ -847,8 +848,8 @@ PLOTS.filter(p=>p.x!=null).forEach(p=>{
      <dt>Price</dt><dd>${price}</dd>
      <dt>Total</dt><dd>${total}</dd>
      <dt>Full code</dt><dd style="font-family:var(--mono);font-size:12.5px">${esc(p.code)||'—'}</dd>
-     <dd class="cm">${esc(p.comments)||'<span style="color:var(--muted)">No comments</span>'}</dd>${p.placeholder?'<dd class="cm" style="color:var(--muted)">Located from a screenshot, but this plot is not in the spreadsheet yet.</dd>':''}</dl>
-   <div class="pop-f"><a data-zoom="${p.uid}">Zoom to plot</a></div>`,{maxWidth:300,minWidth:290});
+     <dd class="cm">${esc(p.comments)||'<span style="color:var(--muted)">No comments</span>'}</dd>${p.placeholder?'<dd class="cm" style="color:var(--muted)">Located from a screenshot, but this plot is not in the spreadsheet yet.</dd>':''}${p.approx?'<dd class="cm" style="color:var(--muted)">Position from the listing\'s GPS coordinates (accurate to about a plot width).</dd>':''}</dl>
+   <div class="pop-f"><a data-zoom="${p.uid}">Zoom to plot</a>${/^https:\/\//.test(p.url||'')?` · <a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">View listing ↗</a>`:''}</div>`,{maxWidth:300,minWidth:290});
   layers.push({p,m,outline,a});
 });
 map.on('popupopen',e=>{const l=e.popup.getElement().querySelector('[data-zoom]');if(l)l.onclick=()=>{const L_=layers.find(x=>x.p.uid===l.dataset.zoom);map.setView(L_.m.getLatLng(),8);};});
