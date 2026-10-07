@@ -754,6 +754,39 @@ header h1 small{font-weight:400;color:#aab2c5;margin-left:6px;font-size:13px}
 #ltable tbody tr{cursor:pointer}
 #ltable tbody tr:hover td{background:#eaf4ff}
 #ltable tfoot td{position:sticky;bottom:0;background:#f3f3f3;font-weight:700;box-shadow:inset 0 1px 0 #bdbdbd}
+/* --- add plot / publish panels (website only) --- */
+.pill.add{background:#fff;color:var(--ink);font-weight:600}
+.pill.add:hover{background:#e7eaf0}
+.pill.pub{background:#ffd666;color:#3d2c00;font-weight:600;display:none}
+.pill.pub.on{display:inline-block}
+.pill:focus-visible,.panel button:focus-visible,.panel input:focus-visible,.panel select:focus-visible,.panel textarea:focus-visible{outline:2px solid #3a7bd5;outline-offset:2px}
+.panel{position:absolute;right:12px;top:12px;width:min(380px,calc(100% - 24px));max-height:calc(100% - 24px);background:#fff;border-radius:10px;
+  box-shadow:0 8px 30px rgba(0,0,0,.3);z-index:1120;display:none;flex-direction:column;overflow:hidden}
+.panel.open{display:flex}
+.panel .ph{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center}
+.panel .ph b{font-size:15px}
+.panel .ph button{margin-left:auto;border:0;background:none;font-size:20px;cursor:pointer;color:var(--muted);line-height:1}
+.panel .pb{overflow:auto;padding:12px 14px 14px;font-size:14px}
+.panel label{display:block;font-size:13px;color:#3a4255;margin:10px 0 4px}
+.panel input,.panel select,.panel textarea{width:100%;padding:8px 9px;font:15px var(--ui);border:1px solid #c8cdd8;border-radius:7px;background:#fff;color:var(--ink)}
+.panel textarea{min-height:64px;resize:vertical}
+.panel .code-in{font-family:var(--mono);font-size:14px}
+.panel .rowf{display:flex;gap:8px;align-items:stretch}
+.panel .rowf>*{flex:1}
+.panel .rowf>button{flex:none}
+.panel button.go{padding:8px 14px;border:0;border-radius:7px;background:var(--ink);color:#fff;font:600 14px var(--ui);cursor:pointer}
+.panel button.go:disabled{opacity:.45;cursor:default}
+.panel button.go.wide{width:100%;margin-top:14px;padding:10px}
+.panel .msg{font-size:13px;margin-top:8px;line-height:1.4;color:var(--muted)}
+.panel .msg.err{color:#b42318}
+.panel .msg.ok{color:#1e7d4f}
+.panel .found{margin-top:10px;padding:9px 11px;background:#f3f6fb;border-radius:7px;font-size:13px;line-height:1.45}
+.panel .found b{font-size:14px}
+.panel fieldset{border:0;padding:0;margin:4px 0 0}
+.panel fieldset:disabled{opacity:.5}
+.panel .hint{font-size:12.5px;color:var(--muted);line-height:1.45;margin:8px 0 0}
+.panel .hint a,.panel .msg a{color:#1f5fd1}
+.panel [hidden]{display:none!important}
 @media (max-width:640px){.chip{padding:5px 8px;font-size:13px}.pf input[type=number]{width:72px}}
 </style>
 </head>
@@ -834,25 +867,42 @@ function costs(p){const a=Number(p.area)>0?Number(p.area):null, pr=Number(p.pric
 PLOTS.forEach(p=>Object.assign(p,costs(p)));
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const layers=[];
-PLOTS.filter(p=>p.x!=null).forEach(p=>{
-  const a=AGENTS.find(a=>a.key===p.agent);
-  const icon=L.divIcon({className:'',html:`<div class="mk">${shapeSVG(a.shape,a.color,26)}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-12]});
-  const m=L.marker([p.y,p.x],{icon,title:p.uid,riseOnHover:true});
-  const outline=L.rectangle([[p.y-p.h/2,p.x-p.w/2],[p.y+p.h/2,p.x+p.w/2]],{color:a.color,weight:2,fill:false,interactive:false,dashArray:p.approx?'5 5':null});
+const ftxt=v=>v==null?'':Number(v).toLocaleString('en-IN',{maximumFractionDigits:1});
+function popupHTML(p,a){
   const price=Number(p.price)>0?`₹${fmt(p.price)} / sq yd`:'Not quoted';
   const total=p.c_total!=null?`₹${p.c_total.toLocaleString('en-IN',{maximumFractionDigits:2})} lakh`:'—';
-  m.bindPopup(`<div class="pop-h">${shapeSVG(a.shape,a.color,18)}<span class="code">${esc(p.uid)}</span>
+  const dims=p.len_ft&&p.wid_ft?` · ${ftxt(p.len_ft)} × ${ftxt(p.wid_ft)} ft`:'';
+  const row=(t,v)=>v?`<dt>${t}</dt><dd>${esc(v)}</dd>`:'';
+  const gps=p.lat!=null?`<a href="https://www.google.com/maps?q=${p.lat},${p.lon}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`:'';
+  const links=[`<a data-zoom="${esc(p.uid)}">Zoom to plot</a>`,
+    /^https:\/\//.test(p.url||'')?`<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">View listing ↗</a>`:'',gps,
+    p.app&&window.__SITE?`<a data-remove="${esc(p.uid)}" style="color:#b42318">Remove</a>`:''].filter(Boolean).join(' · ');
+  return `<div class="pop-h">${shapeSVG(a.shape,a.color,18)}<span class="code">${esc(p.uid)}</span>
      <span class="tag">${esc(p.type||'Type unknown')}<br>${esc(p.agent)}</span></div>
    <dl class="pop-b"><dt>Owner</dt><dd>${esc(p.owner)||'—'}</dd>
-     <dt>Size</dt><dd>${fmt(p.area)?fmt(p.area)+' sq yd':'—'}</dd>
+     <dt>Size</dt><dd>${fmt(p.area)?fmt(p.area)+' sq yd':'—'}${dims}</dd>
      <dt>Price</dt><dd>${price}</dd>
      <dt>Total</dt><dd>${total}</dd>
+     ${row('Road',p.road)}${row('Next to',p.beside)}${row('Zoning',p.zoning)}${row('Village',p.village)}
      <dt>Full code</dt><dd style="font-family:var(--mono);font-size:12.5px">${esc(p.code)||'—'}</dd>
-     <dd class="cm">${esc(p.comments)||'<span style="color:var(--muted)">No comments</span>'}</dd>${p.placeholder?'<dd class="cm" style="color:var(--muted)">Located from a screenshot, but this plot is not in the spreadsheet yet.</dd>':''}${p.approx?'<dd class="cm" style="color:var(--muted)">Position from the listing\'s GPS coordinates (accurate to about a plot width).</dd>':''}</dl>
-   <div class="pop-f"><a data-zoom="${p.uid}">Zoom to plot</a>${/^https:\/\//.test(p.url||'')?` · <a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">View listing ↗</a>`:''}</div>`,{maxWidth:300,minWidth:290});
+     <dd class="cm">${esc(p.comments)||'<span style="color:var(--muted)">No comments</span>'}</dd>${p.placeholder?'<dd class="cm" style="color:var(--muted)">Located from a screenshot, but this plot is not in the spreadsheet yet.</dd>':''}${p.approx?'<dd class="cm" style="color:var(--muted)">Approximate position from GPS coordinates (about a plot width).</dd>':''}${p._pending?'<dd class="cm" style="color:#9a6700">Added on this device; not yet published to the website.</dd>':''}</dl>
+   <div class="pop-f">${links}</div>`;
+}
+function makeLayer(p){
+  if(p.x==null) return;
+  const a=AGENTS.find(a=>a.key===p.agent)||AGENTS[0];
+  const icon=L.divIcon({className:'',html:`<div class="mk">${shapeSVG(a.shape,a.color,26)}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-12]});
+  const m=L.marker([p.y,p.x],{icon,title:p.uid,riseOnHover:true});
+  const style={color:a.color,weight:2,fill:false,interactive:false,dashArray:p.approx?'5 5':null};
+  const outline=p.poly&&p.poly.length>2?L.polygon(p.poly.map(([x,y])=>[y,x]),style)
+    :L.rectangle([[p.y-p.h/2,p.x-p.w/2],[p.y+p.h/2,p.x+p.w/2]],style);
+  m.bindPopup(()=>popupHTML(p,a),{maxWidth:300,minWidth:290});
   layers.push({p,m,outline,a});
-});
-map.on('popupopen',e=>{const l=e.popup.getElement().querySelector('[data-zoom]');if(l)l.onclick=()=>{const L_=layers.find(x=>x.p.uid===l.dataset.zoom);map.setView(L_.m.getLatLng(),8);};});
+}
+PLOTS.forEach(makeLayer);
+map.on('popupopen',e=>{const el=e.popup.getElement(), l=el.querySelector('[data-zoom]'), r=el.querySelector('[data-remove]');
+  if(l)l.onclick=()=>{const L_=layers.find(x=>x.p.uid===l.dataset.zoom);map.setView(L_.m.getLatLng(),8);};
+  if(r&&window.onRemovePlot)r.onclick=()=>window.onRemovePlot(r.dataset.remove);});
 
 // markers always sit exactly on their plot; nearby markers overlap (hover brings one to the front)
 const priceOf=p=>Number(p.price)>0?Number(p.price):null;
@@ -947,6 +997,210 @@ document.getElementById('listbtn').onclick=()=>{const L_=document.getElementById
 document.getElementById('lclose').onclick=()=>document.getElementById('list').classList.remove('open');
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('list').classList.remove('open');});
 
+// --- Add a plot from its code (website only): APCRDA lookup -> place on the map -> keep on this device -> publish ---
+if(window.__SITE){(()=>{
+const SITE=window.__SITE, G=SITE.georef, $=id=>document.getElementById(id);
+const APCRDA='https://gis.apcrda.org/server/rest/services/APCRDAGIS/ONLINEGISMAP/MapServer/7/query';
+const R=6378137, rad=Math.PI/180;
+function geoPx(lon,lat){                      // same as the kit's geo_px: global fit + correction from 4 nearest known plots
+  const mx=R*lon*rad, my=R*Math.log(Math.tan(Math.PI/4+lat*rad/2)); let x=G.s*mx+G.bx, y=-G.s*my+G.by;
+  const d=(G.res||[]).map(r=>[Math.hypot(r[0]-x,r[1]-y),r]).sort((a,b)=>a[0]-b[0]).slice(0,4).filter(t=>t[0]<3000);
+  if(d.length){const w=d.map(t=>1/(t[0]+50)**2), sw=w.reduce((a,b)=>a+b,0);
+    x-=d.reduce((s,t,i)=>s+w[i]*t[1][2],0)/sw; y-=d.reduce((s,t,i)=>s+w[i]*t[1][3],0)/sw;}
+  return [x,y];
+}
+function splitCode(s){const p=String(s).trim().split('-').filter(Boolean);
+  if(p.length>=5) return {code:p.join('-'),uid:p[2]+'-'+p[3]};
+  if(p.length===2&&p.every(x=>/^\d+$/.test(x))) return {code:null,uid:p[0]+'-'+p[1]};
+  return null;}
+const SIDES=[['North','n'],['East','e'],['South','s'],['West','w']];
+function record(f){
+  const a=f.attributes, ring=f.geometry.rings[0], lo=ring.map(p=>p[0]), la=ring.map(p=>p[1]);
+  const z=(a.symbology||'').trim(), v=k=>(a['regcode_'+k]||'').trim();
+  const road=SIDES.filter(([,k])=>/road/i.test(v(k))).map(([s,k])=>`${s} (${v(k).replace(' mtr ',' m ').replace('Road','road')})`).join('; ')||null;
+  const beside=SIDES.filter(([,k])=>v(k)&&!/road/i.test(v(k))&&!/^\d/.test(v(k))).map(([s,k])=>`${s} (${v(k)})`).join('; ')||null;
+  const pts=ring.map(([x,y])=>geoPx(x,y)), xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+  const r1=n=>Math.round(n*10)/10;
+  return {code:a.plot_code, area:a.alloted_ex, len_ft:a.polylength?r1(a.polylength):null, wid_ft:a.polywidth?r1(a.polywidth):null,
+    zoning:z, type:/^C/i.test(z)?'Commercial':/^R/i.test(z)?'Residential':'', village:(a.village||'').trim(), road, beside,
+    allottee:(a.farmer_n||'').trim()||null, lat:+((Math.min(...la)+Math.max(...la))/2).toFixed(7), lon:+((Math.min(...lo)+Math.max(...lo))/2).toFixed(7),
+    x:r1((Math.min(...xs)+Math.max(...xs))/2), y:r1((Math.min(...ys)+Math.max(...ys))/2),
+    w:r1(Math.max(...xs)-Math.min(...xs)), h:r1(Math.max(...ys)-Math.min(...ys)), poly:pts.map(p=>[r1(p[0]),r1(p[1])])};
+}
+async function apcrda(where){
+  const ctl=new AbortController(), t=setTimeout(()=>ctl.abort(),25000);
+  try{
+    const q=new URLSearchParams({where,outFields:'*',outSR:'4326',returnGeometry:'true',f:'json'});
+    const r=await fetch(APCRDA+'?'+q,{signal:ctl.signal}); const d=await r.json();
+    if(d.error) throw new Error(d.error.message||'query error'); return d.features||[];
+  } finally{clearTimeout(t);}
+}
+function parseGPS(s){
+  const m=String(s).match(/(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{2,3}\.\d+)/); if(!m) return null;
+  const lat=+m[1], lon=+m[2]; return lat>15&&lat<18&&lon>79&&lon<82?{lat,lon}:null;
+}
+
+// header buttons
+const hdr=document.querySelector('header'), before=$('listbtn');
+const addb=document.createElement('button'); addb.className='pill add'; addb.id='addbtn'; addb.textContent='+ Add plot';
+addb.title='Add a plot to the map from its APCRDA plot code';
+const pubb=document.createElement('button'); pubb.className='pill pub'; pubb.id='pubbtn';
+pubb.title='Changes made on this device that are not on the website yet';
+hdr.insertBefore(addb,before); hdr.insertBefore(pubb,before);
+const agentOpts=AGENTS.filter(a=>a.key!=='Unassigned').map(a=>`<option>${esc(a.key)}</option>`).join('');
+const wrap=$('mapwrap');
+wrap.insertAdjacentHTML('beforeend',`
+<section class="panel" id="addp" role="dialog" aria-label="Add a plot">
+  <div class="ph"><b>Add a plot</b><button id="aclose" aria-label="Close">×</button></div>
+  <div class="pb">
+    <label for="acode">APCRDA plot code</label>
+    <div class="rowf"><input id="acode" class="code-in" placeholder="13-549-1972-42-C18" autocomplete="off" spellcheck="false">
+      <button class="go" id="afind">Look up</button></div>
+    <div class="msg" id="amsg">Full code, or just block-plot such as 1972-42. The outline, size and zoning come from the APCRDA map.</div>
+    <div class="found" id="afound" hidden></div>
+    <div id="agps" hidden>
+      <label for="agpsv">GPS of the plot</label>
+      <input id="agpsv" placeholder="16.48740, 80.44822 or a Google Maps link" autocomplete="off">
+      <label for="aarea">Area (sq yd)</label>
+      <div class="rowf"><input id="aarea" type="number" min="1" inputmode="numeric"><button class="go" id="agpsgo">Place</button></div>
+      <p class="hint">The plot is drawn as a square of that area at the GPS point (dashed, approximate).</p>
+    </div>
+    <fieldset id="adet" disabled>
+      <label for="aagent">Agent</label><select id="aagent">${agentOpts}</select>
+      <label for="aprice">Price (₹ per sq yd)</label><input id="aprice" type="number" min="0" step="500" inputmode="numeric">
+      <label for="aowner">Owner</label><input id="aowner" autocomplete="off">
+      <label for="acom">Comments</label><textarea id="acom"></textarea>
+      <label for="aurl">Listing link (optional)</label><input id="aurl" type="url" placeholder="https://" autocomplete="off">
+    </fieldset>
+    <button class="go wide" id="asave" disabled>Add to map</button>
+  </div>
+</section>
+<section class="panel" id="pubp" role="dialog" aria-label="Publish changes">
+  <div class="ph"><b>Publish to the website</b><button id="pclose" aria-label="Close">×</button></div>
+  <div class="pb">
+    <div id="plist"></div>
+    <div id="ptokwrap">
+      <label for="ptok">GitHub token</label>
+      <input id="ptok" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+      <label style="display:flex;align-items:center;gap:7px;margin-top:8px"><input type="checkbox" id="prem" checked style="width:auto"> Remember on this device</label>
+      <p class="hint">Needed once per device. Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">fine-grained token</a>:
+        repository access <b>Only select repositories → ${esc(SITE.repo||'')}</b>, permission <b>Contents: Read and write</b>.</p>
+    </div>
+    <p class="hint" id="phas" hidden>Using the GitHub token saved on this device. <a id="pforget" href="#">Forget it</a></p>
+    <button class="go wide" id="pgo">Publish</button>
+    <div class="msg" id="pmsg"></div>
+  </div>
+</section>`);
+
+let found=null, preview=null;
+const amsg=(t,c)=>{$('amsg').innerHTML=t;$('amsg').className='msg'+(c?' '+c:'');};
+function clearPreview(){if(preview){map.removeLayer(preview);preview=null;}}
+function resetAdd(){found=null;clearPreview();$('afound').hidden=true;$('agps').hidden=true;$('adet').disabled=true;$('asave').disabled=true;}
+function showFound(f,approx){
+  found=f; clearPreview();
+  const ll=f.poly.map(([x,y])=>[y,x]);
+  preview=L.polygon(ll,{color:'#1f5fd1',weight:3,fill:true,fillOpacity:.15,dashArray:approx?'5 5':null,interactive:false}).addTo(map);
+  map.setView([f.y,f.x],Math.max(map.getZoom(),7.5));
+  const dims=f.len_ft&&f.wid_ft?` · ${ftxt(f.len_ft)} × ${ftxt(f.wid_ft)} ft`:'';
+  $('afound').innerHTML=approx?`<b>${esc(f.uid)}</b> placed from GPS<br>${fmt(f.area)} sq yd (approximate square)`
+    :`<b>${esc(f.code)}</b><br>${fmt(f.area)} sq yd${dims}<br>${esc(f.zoning)}<br>${esc(f.village)}${f.road?'<br>Road: '+esc(f.road):''}`;
+  $('afound').hidden=false; $('adet').disabled=false; $('asave').disabled=false;
+  if(f.allottee&&!$('aowner').value) $('aowner').value=f.allottee;
+  if(!approx) amsg('Check the blue outline on the map, fill in the details and add it.','ok');
+}
+async function find(){
+  resetAdd();
+  const c=splitCode($('acode').value);
+  if(!c){amsg('That doesn\'t look like a plot code. Use the full code (13-549-1972-42-C18) or block-plot (1972-42).','err');return;}
+  const dup=PLOTS.find(p=>p.uid===c.uid);
+  if(dup){amsg(`${esc(c.uid)} is already on the map (${esc(dup.agent)}). <a href="#" id="agoto">Show it</a>`,'err');
+    $('agoto').onclick=e=>{e.preventDefault();const l=layers.find(x=>x.p.uid===c.uid);if(l){map.setView(l.m.getLatLng(),8);l.m.openPopup();}};return;}
+  $('afind').disabled=true; amsg('Looking up '+esc(c.code||c.uid)+' at APCRDA…');
+  try{
+    let f=c.code?await apcrda(`plot_code='${c.code.replace(/'/g,'')}'`):[];
+    if(!f.length){const [b,n]=c.uid.split('-'); f=await apcrda(`block=${+b} and plot_no=${+n}`);}
+    if(!f.length){amsg(`APCRDA has no plot ${esc(c.code||c.uid)}. Check the code, or place it from GPS instead.`,'err');$('agps').hidden=false;return;}
+    const r=record(f[0]); r.uid=c.uid; showFound(r,false);
+    if(f.length>1) amsg(`APCRDA returned ${f.length} plots for ${esc(c.uid)}; showing ${esc(r.code)}. Use the full code to pick another.`,'err');
+  }catch(e){
+    amsg('Couldn\'t reach the APCRDA map server. If <a href="https://gis.apcrda.org/lps/index.html" target="_blank" rel="noopener noreferrer">the APCRDA map</a> opens for you, search the code there and paste the GPS from its popup below.','err');
+    $('agps').hidden=false;
+  } finally{$('afind').disabled=false;}
+}
+function placeGPS(){
+  const c=splitCode($('acode').value), g=parseGPS($('agpsv').value), area=+$('aarea').value;
+  if(!c){amsg('Enter the plot code first.','err');return;}
+  if(!g){amsg('Couldn\'t read the GPS. Paste it as 16.48740, 80.44822 or paste a Google Maps link.','err');return;}
+  if(!(area>0)){amsg('Enter the area in sq yd.','err');return;}
+  const [x,y]=geoPx(g.lon,g.lat), side=Math.sqrt(area*0.836127)/G.mpp, h=side/2;
+  showFound({uid:c.uid,code:c.code||'',area,lat:g.lat,lon:g.lon,x,y,w:side,h:side,
+    poly:[[x-h,y-h],[x+h,y-h],[x+h,y+h],[x-h,y+h]],approx:true},true);
+  amsg('Placed from GPS. Fill in the details and add it.','ok');
+}
+function addPlot(){
+  if(!found) return;
+  const f=found, url=$('aurl').value.trim();
+  const plot={uid:f.uid,code:f.code||'',agent:$('aagent').value,area:f.area,price:+$('aprice').value||null,type:f.type||'',
+    owner:$('aowner').value.trim()||null,comments:$('acom').value.trim()||null,url:/^https:\/\//.test(url)?url:null,
+    sr:null,priority:null,manual:true,app:true,added:new Date().toISOString().slice(0,10),
+    zoning:f.zoning||null,village:f.village||null,road:f.road||null,beside:f.beside||null,len_ft:f.len_ft||null,wid_ft:f.wid_ft||null,
+    lat:f.lat,lon:f.lon,x:f.x,y:f.y,w:f.w,h:f.h,poly:f.poly};
+  if(f.approx) plot.approx=true;
+  SITE.push({op:'add',uid:plot.uid,plot});
+  const p=Object.assign({},plot,{_pending:true},costs(plot)); PLOTS.push(p); makeLayer(p);
+  state.agents.add(p.agent); apply();
+  $('addp').classList.remove('open'); resetAdd(); ['acode','aprice','aowner','acom','aurl','agpsv','aarea'].forEach(id=>$(id).value='');
+  amsg('Full code, or just block-plot such as 1972-42. The outline, size and zoning come from the APCRDA map.');
+  const l=layers.find(x=>x.p===p); map.setView(l.m.getLatLng(),8); setTimeout(()=>l.m.openPopup(),250);
+  refreshPub();
+}
+window.onRemovePlot=uid=>{
+  const p=PLOTS.find(p=>p.uid===uid&&p.app); if(!p) return;
+  if(!confirm(`Remove ${uid} from the map?`)) return;
+  const add=SITE.pending().find(o=>o.op==='add'&&o.uid===uid);
+  if(add) SITE.drop(add.id); else SITE.push({op:'remove',uid});
+  const i=layers.findIndex(x=>x.p===p); if(i>=0){map.removeLayer(layers[i].m);map.removeLayer(layers[i].outline);layers.splice(i,1);}
+  PLOTS.splice(PLOTS.indexOf(p),1); map.closePopup(); apply(); refreshPub();
+};
+function refreshPub(){
+  const n=SITE.pending().length;
+  pubb.textContent=`Publish ${n} change${n===1?'':'s'}`; pubb.classList.toggle('on',n>0);
+}
+function openPub(){
+  const ops=SITE.pending(), tok=SITE.token.get();
+  $('plist').innerHTML=ops.length?`<p style="margin:0 0 6px">Not on the website yet:</p>`+ops.map(o=>`<div style="padding:3px 0;font-size:13px">${o.op==='add'?'Add':'Remove'} <code style="font:500 12.5px var(--mono)">${esc(o.uid)}</code>${o.plot?' · '+esc(o.plot.agent):''}</div>`).join('')
+    :'<p style="margin:0">Nothing to publish.</p>';
+  $('ptokwrap').hidden=!!tok; $('phas').hidden=!tok; $('pgo').disabled=!ops.length; $('pmsg').textContent=''; $('pmsg').className='msg';
+  $('pubp').classList.add('open');
+}
+async function doPublish(){
+  const m=$('pmsg'), tok=SITE.token.get()||$('ptok').value.trim();
+  if(!tok){m.textContent='Paste a GitHub token first.';m.className='msg err';return;}
+  $('pgo').disabled=true; m.textContent='Publishing…'; m.className='msg';
+  try{
+    const n=await SITE.publish(tok);
+    if(!SITE.token.get()&&$('prem').checked) SITE.token.set(tok);
+    PLOTS.forEach(p=>delete p._pending); refreshPub();
+    m.textContent=`Published ${n} change${n===1?'':'s'}. The website shows ${n===1?'it':'them'} for everyone in 1–2 minutes.`; m.className='msg ok';
+    $('plist').innerHTML=''; $('ptokwrap').hidden=true;
+  }catch(e){
+    m.textContent=(e.message||'Publishing failed.')+(e.status===401||e.status===403||e.status===404?' Paste a new token below.':'');
+    m.className='msg err'; if(e.status===401||e.status===403||e.status===404){SITE.token.set(null);$('ptokwrap').hidden=false;$('phas').hidden=true;}
+    $('pgo').disabled=false;
+  }
+}
+addb.onclick=()=>{$('pubp').classList.remove('open');$('addp').classList.toggle('open');if($('addp').classList.contains('open'))$('acode').focus();else clearPreview();};
+$('aclose').onclick=()=>{$('addp').classList.remove('open');clearPreview();};
+$('afind').onclick=find; $('acode').addEventListener('keydown',e=>{if(e.key==='Enter')find();});
+$('acode').addEventListener('input',()=>{if(found)resetAdd();});
+$('agpsgo').onclick=placeGPS; $('asave').onclick=addPlot;
+pubb.onclick=()=>{$('addp').classList.remove('open');clearPreview();openPub();};
+$('pclose').onclick=()=>$('pubp').classList.remove('open');
+$('pgo').onclick=doPublish;
+$('pforget').onclick=e=>{e.preventDefault();SITE.token.set(null);$('phas').hidden=true;$('ptokwrap').hidden=false;};
+refreshPub();
+})();}
+
 apply(); fit();
 </script>
 <!-- ===== website version: password screen + loader (inserted by `amaravati_kit.py site`) ===== -->
@@ -997,7 +1251,8 @@ const TILESET=new Set(["0/0/0","1/0/0","1/0/1","1/1/0","1/1/1","2/0/0","2/0/1","
 const $=id=>document.getElementById(id), S=window.crypto&&crypto.subtle, enc=new TextEncoder();
 const STORE='amaravati-plots.key';
 const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-const b64e=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
+const b64e=b=>{const u=new Uint8Array(b);let t='';for(let i=0;i<u.length;i+=8192)t+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(t);};
+const OPS='amaravati-plots.changes', TOKEN='amaravati-plots.github';
 const EC={name:'ECDH',namedCurve:'P-256'};
 let KEY=null, DATA=null;
 const say=(t,ok)=>{$('msg').textContent=t;$('msg').className='msg'+(ok?' ok':'');};
@@ -1010,21 +1265,99 @@ async function unwrapDer(pw){                       // throws if the password is
   const k=await kek(pw,b64d(KEY.salt),KEY.iter,['decrypt']);
   return S.decrypt({name:'AES-GCM',iv:b64d(KEY.iv)},k,b64d(KEY.wrapped));
 }
-async function openData(priv){
-  const epk=await S.importKey('raw',b64d(DATA.epk),EC,false,[]);
+async function openData(priv,box){
+  const D=box||DATA;
+  const epk=await S.importKey('raw',b64d(D.epk),EC,false,[]);
   const bits=await S.deriveBits({name:'ECDH',public:epk},priv,256);
   const hk=await S.importKey('raw',bits,'HKDF',false,['deriveKey']);
-  const k=await S.deriveKey({name:'HKDF',hash:'SHA-256',salt:b64d(DATA.salt),info:enc.encode('amaravati-plots-v1')},
+  const k=await S.deriveKey({name:'HKDF',hash:'SHA-256',salt:b64d(D.salt),info:enc.encode('amaravati-plots-v1')},
                             hk,{name:'AES-GCM',length:256},false,['decrypt']);
-  return JSON.parse(new TextDecoder().decode(await S.decrypt({name:'AES-GCM',iv:b64d(DATA.iv)},k,b64d(DATA.ct))));
+  return JSON.parse(new TextDecoder().decode(await S.decrypt({name:'AES-GCM',iv:b64d(D.iv)},k,b64d(D.ct))));
 }
-function start(payload){
+// encrypt a payload to the site's public key (same scheme as the kit: ECDH P-256 + HKDF-SHA256 + AES-GCM)
+async function seal(obj){
+  const pub=await S.importKey('raw',b64d(KEY.pub),EC,false,[]);
+  const eph=await S.generateKey(EC,true,['deriveBits']);
+  const bits=await S.deriveBits({name:'ECDH',public:pub},eph.privateKey,256);
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const hk=await S.importKey('raw',bits,'HKDF',false,['deriveKey']);
+  const k=await S.deriveKey({name:'HKDF',hash:'SHA-256',salt,info:enc.encode('amaravati-plots-v1')},hk,{name:'AES-GCM',length:256},false,['encrypt']);
+  const ct=await S.encrypt({name:'AES-GCM',iv},k,enc.encode(JSON.stringify(obj)));
+  return {v:1,epk:b64e(await S.exportKey('raw',eph.publicKey)),salt:b64e(salt),iv:b64e(iv),ct:b64e(ct)};
+}
+// --- changes made in the page (add / remove plots), kept on this device until published ---
+const lsGet=(k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')??d;}catch(e){return d;}};
+const lsSet=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+function applyOps(plots,ops){
+  for(const o of ops){
+    if(o.op==='add'){
+      if(plots.some(p=>p.uid===o.uid&&!p.app)) continue;          // the spreadsheet already has this plot
+      plots=plots.filter(p=>p.uid!==o.uid); plots.push(Object.assign({},o.plot));
+    } else if(o.op==='remove') plots=plots.filter(p=>!(p.uid===o.uid&&p.app));
+  }
+  return plots;
+}
+function repoName(payload){
+  if(payload.repo) return payload.repo;
+  const h=location.hostname, seg=location.pathname.split('/').filter(Boolean)[0];
+  return h.endsWith('.github.io')&&seg?h.split('.')[0]+'/'+seg:null;
+}
+function makeSite(payload,priv){
+  const repo=repoName(payload), api=`https://api.github.com/repos/${repo}/contents/data.json`;
+  const pending=()=>lsGet(OPS,[]).filter(o=>!o.published);
+  async function gh(token,method,body){
+    const r=await fetch(api+(method==='GET'?'?ref=main':''),{method,cache:'no-store',
+      headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+      body:body?JSON.stringify(body):undefined});
+    if(r.ok) return r.json();
+    const why={401:'GitHub did not accept the token (wrong, expired or revoked).',
+      403:'The token is not allowed to change this repository. It needs Contents: Read and write on '+repo+'.',
+      404:'The token cannot see '+repo+'. Give it access to that repository.',
+      409:'conflict', 422:'conflict'}[r.status];
+    const e=new Error(why||('GitHub error '+r.status)); e.status=r.status; throw e;
+  }
+  async function publish(token){
+    const ops=pending(); if(!ops.length) return 0;
+    let stamp=0;
+    for(let attempt=0;;attempt++){
+      const cur=await gh(token,'GET');
+      const live=await openData(priv,JSON.parse(atob(cur.content.replace(/\s/g,''))));
+      live.plots=applyOps(live.plots,ops); live.saved=Date.now(); stamp=live.saved;
+      const box=await seal(live);
+      const names=ops.map(o=>(o.op==='add'?'add ':'remove ')+o.uid).join(', ');
+      try{
+        await gh(token,'PUT',{message:'Map page: '+names,content:btoa(JSON.stringify(box)),sha:cur.sha,branch:'main'});
+        break;
+      }catch(e){ if(e.message==='conflict'&&attempt<2) continue; if(e.message==='conflict') throw new Error('data.json changed on GitHub while publishing. Try again.'); throw e; }
+    }
+    const ids=new Set(ops.map(o=>o.id));
+    lsSet(OPS,lsGet(OPS,[]).map(o=>ids.has(o.id)?Object.assign(o,{published:stamp}):o));
+    return ops.length;
+  }
+  return {georef:payload.georef, repo, pending,
+    push(o){o.id=o.id||(Date.now().toString(36)+Math.random().toString(36).slice(2,6));o.at=new Date().toISOString();lsSet(OPS,lsGet(OPS,[]).concat([o]));},
+    drop(id){lsSet(OPS,lsGet(OPS,[]).filter(o=>o.id!==id));},
+    token:{get:()=>lsGet(TOKEN,null),set:t=>lsSet(TOKEN,t)},
+    publish};
+}
+function start(payload,priv){
+  // replay changes made on this device. A published change is replayed only while the website still serves an older
+  // data.json (GitHub Pages takes 1-2 min); once the served copy is as new or newer (payload.saved) it is dropped.
+  const now=Date.now(), served=payload.saved||0;
+  let ops=lsGet(OPS,[]).filter(o=>!(o.published&&(o.published<=served||now-o.published>864e5)));
+  lsSet(OPS,ops.length?ops:null);
+  payload.plots=applyOps(payload.plots,ops);
+  const unpub=new Set(ops.filter(o=>!o.published&&o.op==='add').map(o=>o.uid));
+  payload.plots.forEach(p=>{if(unpub.has(p.uid)) p._pending=true;});
+  window.__SITE=makeSite(payload,priv);
   window.__PLOTS=payload.plots; window.__AGENTS=payload.agents; window.__RATES=payload.rates;
   $('lock').remove();
   const s=document.createElement('script'); s.textContent=$('appcode').textContent; document.body.appendChild(s);
   const b=document.createElement('button'); b.className='pill'; b.id='lockbtn'; b.textContent='Lock';
-  b.title='Forget the password on this device and lock the page';
-  b.onclick=()=>{try{localStorage.removeItem(STORE);}catch(e){} location.reload();};
+  b.onclick=()=>{const n=window.__SITE.pending().length;
+    if(n&&!confirm(n+' change'+(n>1?'s':'')+' made on this device '+(n>1?'are':'is')+' not published yet. Locking discards '+(n>1?'them':'it')+'. Lock anyway?')) return;
+    [STORE,OPS,TOKEN].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}}); location.reload();};
+  b.title='Forget the password (and GitHub token) on this device and lock the page';
   document.querySelector('header').appendChild(b);
 }
 async function init(){
@@ -1035,7 +1368,7 @@ async function init(){
   }catch(e){say('Could not load the data files. Open this page from its web address, not as a file.');return;}
   let saved=null; try{saved=JSON.parse(localStorage.getItem(STORE)||'null');}catch(e){}
   if(saved&&saved.pub===KEY.pub){
-    try{const priv=await S.importKey('jwk',saved.jwk,EC,false,['deriveBits']); start(await openData(priv)); return;}
+    try{const priv=await S.importKey('jwk',saved.jwk,EC,false,['deriveBits']); start(await openData(priv),priv); return;}
     catch(e){try{localStorage.removeItem(STORE);}catch(_){}}
   }
   $('pw').focus();
@@ -1048,7 +1381,7 @@ $('f-unlock').addEventListener('submit',async e=>{
     const priv=await S.importKey('pkcs8',der,EC,true,['deriveBits']);
     const payload=await openData(priv);
     if($('remember').checked){try{localStorage.setItem(STORE,JSON.stringify({pub:KEY.pub,jwk:await S.exportKey('jwk',priv)}));}catch(_){}}
-    start(payload);
+    start(payload,priv);
   }catch(err){say('Wrong password.');btn.disabled=false;$('pw').select();}
 });
 $('to-change').onclick=()=>{$('f-unlock').hidden=true;$('f-change').hidden=false;$('pw-old').focus();};
