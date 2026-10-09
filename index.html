@@ -739,6 +739,9 @@ header h1 small{font-weight:400;color:#aab2c5;margin-left:6px;font-size:13px}
 #list .lh{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:10px}
 #list .lh b{font-size:15px}
 #list .lh span{font-size:13px;color:var(--muted)}
+#list .lh .xl-in{margin-left:auto;font-size:13px;padding:5px 10px;background:#1d6f42;color:#fff}
+#list .lh .xl-in:hover{background:#185c37}
+#list .lh .xl-in+button{margin-left:6px}
 #list .lh button{margin-left:auto;border:0;background:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1}
 #list .lscroll{flex:1;overflow:auto}
 #list .lnote{padding:7px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
@@ -807,12 +810,13 @@ header h1 small{font-weight:400;color:#aab2c5;margin-left:6px;font-size:13px}
   </div>
   <div class="spacer"></div>
   <button class="pill" id="listbtn" title="Show the plots currently on the map as a table">List</button>
+  <button class="pill" id="xlsbtn" title="Download the plots currently on the map as an Excel file">Export to Excel</button>
   <button class="pill" id="fit">Show all plots</button>
   <button class="pill" id="unl"></button>
 </header>
 <div id="mapwrap"><div id="map"></div><div id="empty">No plots match the current filters</div>
 <section id="list" role="dialog" aria-label="Plots on the map">
-  <div class="lh"><b>Plots on the map</b><span id="lcount"></span><button id="lclose" aria-label="Close">×</button></div>
+  <div class="lh"><b>Plots on the map</b><span id="lcount"></span><button class="pill xl-in" id="xlsbtn2">Export to Excel</button><button id="lclose" aria-label="Close">×</button></div>
   <div class="lscroll"><table id="ltable"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
   <div class="lnote">Shows exactly the plots visible with the current Agent / Type / Price / Size filters. Click a column heading to sort; click a row to go to that plot.</div>
 </section>
@@ -878,7 +882,7 @@ function popupHTML(p,a){
     /^https:\/\//.test(p.url||'')?`<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">View listing ↗</a>`:'',gps,
     p.app&&window.__SITE?`<a data-remove="${esc(p.uid)}" style="color:#b42318">Remove</a>`:''].filter(Boolean).join(' · ');
   return `<div class="pop-h">${shapeSVG(a.shape,a.color,18)}<span class="code">${esc(p.uid)}</span>
-     <span class="tag">${esc(p.type||'Type unknown')}<br>${esc(p.agent)}</span></div>
+     <span class="tag">${esc(p.type||'Type unknown')}<br>${esc(p.agent)}${p.sr!=null&&p.sr!==''?` (${esc(p.sr)})`:''}</span></div>
    <dl class="pop-b"><dt>Owner</dt><dd>${esc(p.owner)||'—'}</dd>
      <dt>Size</dt><dd>${fmt(p.area)?fmt(p.area)+' sq yd':'—'}${dims}</dd>
      <dt>Price</dt><dd>${price}</dd>
@@ -953,7 +957,7 @@ ub.onclick=()=>document.getElementById('drawer').classList.toggle('open');
 document.getElementById('dclose').onclick=()=>document.getElementById('drawer').classList.remove('open');
 document.getElementById('dbody').innerHTML=AGENTS.map(a=>{const rows=unl.filter(p=>p.agent===a.key);if(!rows.length)return'';
   return `<h3>${shapeSVG(a.shape,a.color,14)}${a.key} · ${rows.length}</h3>`+rows.map(p=>`<div class="row"><code>${esc(p.uid)}</code><span>${esc(p.type)} · ${fmt(p.area)??'—'} sq yd</span></div>`).join('');}).join('')
-  +`<p class="note">These plots are in the spreadsheet but have no location screenshot yet. Send a PNG named with the unique code (e.g. 4716-24.png) to add them.</p>`;
+  +`<p class="note">These plots couldn't be placed: their plot code wasn't found on the APCRDA map. Check the code (a typo is the usual cause), or send a screenshot of the plot named with its unique code (e.g. 4716-24.png).</p>`;
 
 // --- List: table of the plots currently shown, laid out like the Excel sheet ---
 const COLS=[
@@ -965,15 +969,18 @@ const COLS=[
 const AORD=Object.fromEntries(AGENTS.map((a,i)=>[a.key,i]));
 let lsort=null;                                       // null = sheet order (agent, then SR#)
 const cell=(c,v)=>v==null||v===''?'':c.n?Number(v).toLocaleString('en-IN',c.d?{minimumFractionDigits:0,maximumFractionDigits:c.d}:{}):esc(v);
-function renderList(){
-  const L_=document.getElementById('list'); if(!L_.classList.contains('open')) return;
-  let rows=layers.filter(l=>visible(l.p)).map(l=>l.p);
+function shownRows(){                                 // plots on the map now, in the List's order (also used by Export)
+  const rows=layers.filter(l=>visible(l.p)).map(l=>l.p);
   const base=(a,b)=>(AORD[a.agent]-AORD[b.agent])||((a.sr??1e9)-(b.sr??1e9));
-  rows.sort((a,b)=>{if(!lsort) return base(a,b);
+  return rows.sort((a,b)=>{if(!lsort) return base(a,b);
     const c=COLS.find(c=>c.k===lsort.k), x=a[lsort.k], y=b[lsort.k];
     if(x==null||x==='') return (y==null||y==='')?base(a,b):1; if(y==null||y==='') return -1;
     const r=c.k==='agent'?AORD[x]-AORD[y]:c.n?x-y:String(x).localeCompare(String(y));
     return (r*lsort.dir)||base(a,b);});
+}
+function renderList(){
+  const L_=document.getElementById('list'); if(!L_.classList.contains('open')) return;
+  const rows=shownRows();
   const t=document.getElementById('ltable');
   t.tHead.innerHTML='<tr>'+COLS.map(c=>`<th data-k="${c.k}" class="${c.xl?'xl':''}">${c.t}${lsort&&lsort.k===c.k?`<span class="ar">${lsort.dir>0?'▲':'▼'}</span>`:''}</th>`).join('')+'</tr>';
   t.tBodies[0].innerHTML=rows.map(p=>'<tr data-uid="'+esc(p.uid)+'">'+COLS.map(c=>{
@@ -992,6 +999,82 @@ document.getElementById('ltable').addEventListener('click',e=>{
   const tr=e.target.closest('tr[data-uid]'); if(!tr) return;
   const l=layers.find(x=>x.p.uid===tr.dataset.uid); document.getElementById('list').classList.remove('open');
   map.setView(l.m.getLatLng(),8); setTimeout(()=>l.m.openPopup(),250);});
+
+// --- Export to Excel: the plots on the map now (same filters and order as the List) -> .xlsx, no library needed ---
+const XCOLS=[
+  {t:'Agent',k:'agent',w:14},{t:'SR#',k:'sr',n:'0',w:6},{t:'Plot Code',k:'code',w:22},{t:'Area (sq yd)',k:'area',n:'#,##0',sum:1,w:11},
+  {t:'Price (₹/sq yd)',k:'price',n:'#,##0',w:13},{t:'Priority',k:'priority',n:'0',w:8},{t:'Type',k:'type',w:12},{t:'Owner',k:'owner',w:28},
+  {t:'Registration (lakh)',k:'c_reg',n:'#,##0.00',sum:1,w:16},{t:'Cash (lakh)',k:'c_cash',n:'#,##0.00',sum:1,w:12},
+  {t:'Total (lakh)',k:'c_total',n:'#,##0.00',sum:1,w:12},{t:'Comments',k:'comments',w:50,wrap:1},
+  {t:'Zoning',k:'zoning',w:30},{t:'Village',k:'village',w:14},{t:'Road',k:'road',w:22},{t:'Next to',k:'beside',w:24},
+  {t:'Length (ft)',k:'len_ft',n:'0.0',w:10},{t:'Width (ft)',k:'wid_ft',n:'0.0',w:10},
+  {t:'Latitude',k:'lat',n:'0.000000',w:11},{t:'Longitude',k:'lon',n:'0.000000',w:11},{t:'Google Maps',k:'_gmap',w:22},{t:'Listing',k:'url',w:22}];
+const crcT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+const crc32=b=>{let c=~0;for(let i=0;i<b.length;i++)c=crcT[(c^b[i])&255]^(c>>>8);return (~c)>>>0;};
+function zip(files){                                   // stored (uncompressed) zip
+  const te=new TextEncoder(), parts=[], cen=[]; let off=0;
+  const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
+  for(const [name,text] of files){
+    const nb=te.encode(name), db=te.encode(text), crc=crc32(db);
+    const head=[...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),...u16(0)];
+    parts.push(new Uint8Array([...u32(0x04034b50),...head]),nb,db);
+    cen.push(new Uint8Array([...u32(0x02014b50),...u16(20),...head,...u16(0),...u16(0),...u16(0),...u32(0),...u32(off)]),nb);
+    off+=30+nb.length+db.length;
+  }
+  const csz=cen.reduce((s,a)=>s+a.length,0);
+  return new Blob([...parts,...cen,new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(csz),...u32(off),...u16(0)])],
+    {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const xesc=v=>String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const colL=i=>{let s='';i++;while(i){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=(i-m-1)/26;}return s;};
+function exportXlsx(){
+  const rows=shownRows(); if(!rows.length){alert('No plots are on the map with the current filters.');return;}
+  const fmts=[...new Set(XCOLS.filter(c=>c.n).map(c=>c.n))], fid=f=>164+fmts.indexOf(f);
+  // styles: 0 normal, 1 header, 2 wrap text, 3.. number formats, then bold totals with the same formats
+  const nf=fmts.length;
+  const sx=(i)=>3+fmts.indexOf(i), sxT=(i)=>3+nf+1+fmts.indexOf(i);
+  const xf=(num,font,fill,al)=>`<xf numFmtId="${num}" fontId="${font}" fillId="${fill}" borderId="0" xfId="0"${num?' applyNumberFormat="1"':''}${font?' applyFont="1"':''}${fill?' applyFill="1"':''}${al?' applyAlignment="1">'+al+'</xf>':'/>'}`;
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="${nf}">${fmts.map(f=>`<numFmt numFmtId="${fid(f)}" formatCode="${xesc(f)}"/>`).join('')}</numFmts>
+<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF00B0F0"/></patternFill></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${4+2*nf}">${xf(0,0,0)}${xf(0,1,2,'<alignment vertical="center"/>')}${xf(0,0,0,'<alignment wrapText="1" vertical="top"/>')}
+${fmts.map(f=>xf(fid(f),0,0)).join('')}${xf(0,1,0)}${fmts.map(f=>xf(fid(f),1,0)).join('')}</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  const cellS=(ref,v,st)=>`<c r="${ref}" t="inlineStr"${st?` s="${st}"`:''}><is><t xml:space="preserve">${xesc(v)}</t></is></c>`;
+  const cellN=(ref,v,st)=>`<c r="${ref}" s="${st}"><v>${v}</v></c>`;
+  let xml='<row r="1">'+XCOLS.map((c,i)=>cellS(colL(i)+'1',c.t,1)).join('')+'</row>';
+  rows.forEach((p,ri)=>{const r=ri+2;
+    xml+=`<row r="${r}">`+XCOLS.map((c,i)=>{const ref=colL(i)+r;
+      let v=c.k==='_gmap'?(p.lat!=null?`https://www.google.com/maps?q=${p.lat},${p.lon}`:null):p[c.k];
+      if(v==null||v==='') return '';
+      if(c.n){const n=Number(v); if(isFinite(n)&&String(v).trim()!=='') return cellN(ref,n,sx(c.n));}
+      return cellS(ref,v,c.wrap?2:0);}).join('')+'</row>';});
+  const last=rows.length+1, tr=last+1;
+  xml+=`<row r="${tr}">`+XCOLS.map((c,i)=>{const ref=colL(i)+tr;
+    if(i===0) return cellS(ref,`Total · ${rows.length} plots`,3+nf);
+    if(!c.sum) return '';
+    const tot=rows.reduce((s,p)=>s+(Number(p[c.k])||0),0);
+    return `<c r="${ref}" s="${sxT(c.n)}"><f>SUM(${colL(i)}2:${colL(i)}${last})</f><v>${tot}</v></c>`;}).join('')+'</row>';
+  const lastCol=colL(XCOLS.length-1);
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<dimension ref="A1:${lastCol}${tr}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>${XCOLS.map((c,i)=>`<col min="${i+1}" max="${i+1}" width="${c.w}" customWidth="1"/>`).join('')}</cols>
+<sheetData>${xml}</sheetData><autoFilter ref="A1:${lastCol}${last}"/></worksheet>`;
+  const files=[
+    ['[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ['_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ['xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Plots" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Plots!$A$1:$'+lastCol+'$'+last+'</definedName></definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>'],
+    ['xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ['xl/styles.xml',styles],['xl/worksheets/sheet1.xml',sheet]];
+  const d=new Date(), name=`Amaravati_plots_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.xlsx`;
+  const a=document.createElement('a'); a.href=URL.createObjectURL(zip(files)); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+document.getElementById('xlsbtn').onclick=exportXlsx; document.getElementById('xlsbtn2').onclick=exportXlsx;
 document.getElementById('listbtn').onclick=()=>{const L_=document.getElementById('list');L_.classList.toggle('open');
   document.getElementById('drawer').classList.remove('open');renderList();};
 document.getElementById('lclose').onclick=()=>document.getElementById('list').classList.remove('open');
@@ -1147,7 +1230,7 @@ function addPlot(){
     lat:f.lat,lon:f.lon,x:f.x,y:f.y,w:f.w,h:f.h,poly:f.poly};
   if(f.approx) plot.approx=true;
   SITE.push({op:'add',uid:plot.uid,plot});
-  const p=Object.assign({},plot,{_pending:true},costs(plot)); PLOTS.push(p); makeLayer(p);
+  const p=Object.assign({},plot,{_pending:true,sr:SITE.lastSr(PLOTS,plot.agent)+1},costs(plot)); PLOTS.push(p); makeLayer(p);
   state.agents.add(p.agent); apply();
   $('addp').classList.remove('open'); resetAdd(); ['acode','aprice','aowner','acom','aurl','agpsv','aarea'].forEach(id=>$(id).value='');
   amsg('Full code, or just block-plot such as 1972-42. The outline, size and zoning come from the APCRDA map.');
@@ -1160,7 +1243,9 @@ window.onRemovePlot=uid=>{
   const add=SITE.pending().find(o=>o.op==='add'&&o.uid===uid);
   if(add) SITE.drop(add.id); else SITE.push({op:'remove',uid});
   const i=layers.findIndex(x=>x.p===p); if(i>=0){map.removeLayer(layers[i].m);map.removeLayer(layers[i].outline);layers.splice(i,1);}
-  PLOTS.splice(PLOTS.indexOf(p),1); map.closePopup(); apply(); refreshPub();
+  PLOTS.splice(PLOTS.indexOf(p),1);
+  if(Number(p.sr)>0) PLOTS.forEach(q=>{if(q.agent===p.agent&&Number(q.sr)>Number(p.sr)) q.sr=Number(q.sr)-1;});
+  map.closePopup(); apply(); refreshPub();
 };
 function refreshPub(){
   const n=SITE.pending().length;
@@ -1288,12 +1373,20 @@ async function seal(obj){
 // --- changes made in the page (add / remove plots), kept on this device until published ---
 const lsGet=(k,d)=>{try{return JSON.parse(localStorage.getItem(k)||'null')??d;}catch(e){return d;}};
 const lsSet=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
+// SR# per agent runs 1..N: an added plot gets that agent's last SR# + 1 (worked out against whatever data the change
+// is applied to, so two devices adding at once still get different numbers); a removal closes the gap.
+const lastSr=(plots,agent)=>plots.reduce((m,p)=>p.agent===agent&&Number(p.sr)>m?Number(p.sr):m,0);
 function applyOps(plots,ops){
   for(const o of ops){
     if(o.op==='add'){
       if(plots.some(p=>p.uid===o.uid&&!p.app)) continue;          // the spreadsheet already has this plot
-      plots=plots.filter(p=>p.uid!==o.uid); plots.push(Object.assign({},o.plot));
-    } else if(o.op==='remove') plots=plots.filter(p=>!(p.uid===o.uid&&p.app));
+      plots=plots.filter(p=>p.uid!==o.uid);
+      plots.push(Object.assign({},o.plot,{sr:lastSr(plots,o.plot.agent)+1}));
+    } else if(o.op==='remove'){
+      const gone=plots.find(p=>p.uid===o.uid&&p.app); if(!gone) continue;
+      plots=plots.filter(p=>p!==gone);
+      if(Number(gone.sr)>0) plots.forEach(p=>{if(p.agent===gone.agent&&Number(p.sr)>Number(gone.sr)) p.sr=Number(p.sr)-1;});
+    }
   }
   return plots;
 }
@@ -1334,7 +1427,7 @@ function makeSite(payload,priv){
     lsSet(OPS,lsGet(OPS,[]).map(o=>ids.has(o.id)?Object.assign(o,{published:stamp}):o));
     return ops.length;
   }
-  return {georef:payload.georef, repo, pending,
+  return {georef:payload.georef, repo, pending, lastSr,
     push(o){o.id=o.id||(Date.now().toString(36)+Math.random().toString(36).slice(2,6));o.at=new Date().toISOString();lsSet(OPS,lsGet(OPS,[]).concat([o]));},
     drop(id){lsSet(OPS,lsGet(OPS,[]).filter(o=>o.id!==id));},
     token:{get:()=>lsGet(TOKEN,null),set:t=>lsSet(TOKEN,t)},
